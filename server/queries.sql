@@ -27,7 +27,7 @@ UPDATE people SET cache_reputation = (data->>'reputation')::integer;
 
 -- so how is it going?
 SELECT id FROM people WHERE tsv @@ to_tsquery('javascript & php') ORDER BY data->>'reputation' DESC OFFSET 500 LIMIT 500;
-SELECT id, cache_reputation, data FROM people WHERE tsv @@ to_tsquery('javascript & php') ORDER BY cache_reputation DESC LIMIT 50;
+EXPLAIN ANALYZE SELECT id, cache_reputation, data FROM people WHERE tsv @@ to_tsquery('javascript | php') ORDER BY cache_reputation DESC LIMIT 50;
 -- it's clear that performance when querying on the JSON for ORDER BY is not good. index seems to be unused.
 
 -- adding geo!
@@ -35,4 +35,18 @@ CREATE TABLE geocode (
 	location_string varchar(128) primary key,
 	cnt integer,
 	data json);
-INSERT INTO geocode (SELECT (data->>'location') AS location_string, COUNT(*) AS cnt, NULL as data FROM people GROUP BY data->>'location' HAVING (data->>'location') IS NOT NULL AND COUNT(*) > 3 ORDER BY COUNT(*) DESC);
+
+INSERT INTO geocode
+	SELECT (data->>'location') AS location_string, COUNT(*) AS cnt, NULL as data 
+		FROM people l 
+		WHERE NOT EXISTS (SELECT 1 FROM geocode r WHERE r.location_string = l.data->>'location')
+		GROUP BY data->>'location' HAVING (data->>'location') IS NOT NULL ORDER BY COUNT(*) DESC
+
+-- INSERT INTO geocode 
+--	(SELECT (data->>'location') AS location_string, COUNT(*) AS cnt, NULL as data 
+--	FROM people GROUP BY data->>'location' HAVING (data->>'location') IS NOT NULL ORDER BY COUNT(*) DESC)
+
+UPDATE geocode SET data = NULL;
+UPDATE geocode SET data = NULL WHERE (data->>'error_message') IS NOT NULL
+
+SELECT COUNT(*) FROM geocode 

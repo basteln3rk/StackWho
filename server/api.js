@@ -9,6 +9,7 @@ module.exports = function(app) {
 
     var ChunkFetcher = require('./chunkFetcher/chunkFetcher.js');
     var CouchDbStore = require('./chunkFetcher/couchdbStore.js');
+    var PostgresStore = require('./chunkFetcher/postgresStore.js')();
     var InMemoryUserDatabase = require('./inMemoryUserDatabase.js');
     var userTagInterceptor = require('./interceptor/userTagInterceptor.js');
     var Lexer = require('./lexer.js');
@@ -20,15 +21,15 @@ module.exports = function(app) {
     var userFilter = new UserFilter();
     var inMemoryUserDb = new InMemoryUserDatabase(dbUrl, stackWhoConfig.inMemoryDbRowLimit);
 
-    var isValid = function(request, response){
-        if (request.query.pw !== stackWhoConfig.adminPassword){
+    var isValid = function(request, response) {
+        if (request.query.pw !== stackWhoConfig.adminPassword) {
             response.send('wrong password');
             return false;
         }
 
         return true;
     };
-
+    /*
     app.get('/rebuildIndex', function(request, response) {
 
         if(!isValid(request, response)){
@@ -122,5 +123,40 @@ module.exports = function(app) {
 
     app.get('/state', function(request, response) {
         response.send(inMemoryUserDb.state);
+    });
+*/
+
+    app.get('/resumeDownload', function(request, response) {
+
+        if(!isValid(request, response)){
+            return;
+        }
+
+
+        PostgresStore.getLowestReputation()
+            .then(function(result) {
+                var endpointUrl = 'http://api.stackoverflow.com/1.1/users?';
+                if (result) {
+                    // it's not the first run, so filter to get only new users
+                    endpointUrl = endpointUrl + 'max=' + 1*result.min_reputation;
+                }
+                new ChunkFetcher({
+                    url: endpointUrl,
+                    key: 'users',
+                    pageSize: 100,
+                    maxLength: 20000,
+                    interceptor: userTagInterceptor,
+                    store: require('./chunkFetcher/postgresStore.js')
+                })
+                    .fetch()
+                    .then(function(users) {
+                        console.log('done!');
+                        response.end('thanks, keep going');
+                    });
+
+            })
+            .fail(function(err) {
+                response.end('!! error', err);
+            })
     });
 };
